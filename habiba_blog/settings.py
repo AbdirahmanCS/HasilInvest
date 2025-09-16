@@ -12,7 +12,19 @@ SECRET_KEY = config('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='').split(',')
+# ALLOWED_HOSTS configuration for Railway
+ALLOWED_HOSTS = []
+if 'RAILWAY_ENVIRONMENT' in os.environ:
+    # Railway production
+    ALLOWED_HOSTS = ['hasilinvest.ca', 'www.hasilinvest.ca', '.railway.app', '.up.railway.app']
+else:
+    # Local development
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+
+# Add any additional hosts from environment variable
+additional_hosts = config('ALLOWED_HOSTS', default='')
+if additional_hosts:
+    ALLOWED_HOSTS.extend([host.strip() for host in additional_hosts.split(',') if host.strip()])
 
 
 # Application definition
@@ -86,19 +98,23 @@ WSGI_APPLICATION = 'habiba_blog.wsgi.application'
 # Database (PostgreSQL)
 if 'DATABASE_URL' in os.environ:
     DATABASES = {
-        'default': dj_database_url.parse(os.environ['DATABASE_URL'])
+        'default': dj_database_url.parse(
+            os.environ['DATABASE_URL'],
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
     }
 else:
- DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME'),
-        'USER': config('DB_USER'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': config('DB_NAME'),
+            'USER': config('DB_USER'),
+            'PASSWORD': config('DB_PASSWORD'),
+            'HOST': config('DB_HOST', default='localhost'),
+            'PORT': config('DB_PORT', default='5432'),
+        }
     }
-}
 
 
 # Password validation
@@ -116,13 +132,22 @@ USE_I18N = True
 USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
-STATIC_URL = config('STATIC_URL', default='/static/')
+STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
+# WhiteNoise configuration
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
 # Media files
-MEDIA_URL = config('MEDIA_URL', default='/media/')
+MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Railway-specific static file serving
+if 'RAILWAY_ENVIRONMENT' in os.environ:
+    # Use WhiteNoise for static files in production
+    WHITENOISE_USE_FINDERS = True
+    WHITENOISE_AUTOREFRESH = True
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -160,29 +185,42 @@ RECAPTCHA_PRIVATE_KEY = config('RECAPTCHA_PRIVATE_KEY', default='')
 GOOGLE_ANALYTICS_ID = config('GOOGLE_ANALYTICS_ID', default='')
 
 # Security Settings (for production)
-if not DEBUG:
+if not DEBUG and 'RAILWAY_ENVIRONMENT' in os.environ:
+    # Basic security headers
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_SECONDS = 31536000
-    SECURE_REDIRECT_EXEMPT = []
-    # SECURE_SSL_REDIRECT = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    SECURE_HSTS_PRELOAD = True
+    
+    # SSL/HTTPS settings - be careful with these on Railway
+    SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=False, cast=bool)
+    SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=True, cast=bool)
+    CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=True, cast=bool)
+    
+    # HSTS settings - only enable when you're sure about HTTPS
+    if config('ENABLE_HSTS', default=False, cast=bool):
+        SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+        SECURE_HSTS_SECONDS = 31536000
+        SECURE_HSTS_PRELOAD = True
+    
+    # Trust Railway's proxy
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    USE_TZ = True
 
 # Static files finders
 STATICFILES_FINDERS = [
     'django.contrib.staticfiles.finders.FileSystemFinder',
     'django.contrib.staticfiles.finders.AppDirectoriesFinder',
 ]
-# Email debugging
+# Logging Configuration
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {message}',
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
             'style': '{',
         },
     },
@@ -192,11 +230,40 @@ LOGGING = {
             'formatter': 'verbose',
         },
     },
+    'root': {
+        'level': 'INFO',
+        'handlers': ['console'],
+    },
     'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
         'django.core.mail': {
             'handlers': ['console'],
             'level': 'DEBUG',
             'propagate': True,
         },
+        'gunicorn': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
     },
 }
+
+# Railway-specific settings
+if 'RAILWAY_ENVIRONMENT' in os.environ:
+    # Set the port for Railway
+    PORT = int(os.environ.get('PORT', 8000))
+    
+    # Disable some features that might cause issues on Railway
+    SECURE_REFERRER_POLICY = 'same-origin'
+    
+    # Trust Railway's load balancer
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    
+    # Logging for Railway
+    LOGGING['root']['level'] = 'INFO'
+    LOGGING['loggers']['django']['level'] = 'INFO'
