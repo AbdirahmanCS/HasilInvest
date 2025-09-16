@@ -84,7 +84,12 @@ TEMPLATES = [
 WSGI_APPLICATION = 'habiba_blog.wsgi.application'
 
 # Database (PostgreSQL)
-DATABASES = {
+if 'DATABASE_URL' in os.environ:
+    DATABASES = {
+        'default': dj_database_url.parse(os.environ['DATABASE_URL'])
+    }
+else:
+ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': config('DB_NAME'),
@@ -94,9 +99,7 @@ DATABASES = {
         'PORT': config('DB_PORT', default='5432'),
     }
 }
-# Railway Database Configuration - Railway provides DATABASE_URL
-if 'DATABASE_URL' in os.environ:
-    DATABASES['default'] = dj_database_url.parse(os.environ.get('DATABASE_URL'))
+
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
