@@ -1,0 +1,1 @@
+web: gunicorn habiba_blog.wsgi --log-file -
